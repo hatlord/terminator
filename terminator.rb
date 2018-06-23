@@ -65,9 +65,9 @@ def rdp_attack
         out, err = @cmd.run!("#{@rdp_check} #{@opts[:domain]}/#{user}:'#{pass}'@#{host}")
         status = out.split("\n\n")[1]
         if status =~ /Access Granted/
-          puts "#{host}:#{user}:#{pass} - SUCCESS".green.bold
+          puts "[*]#{host}:#{user}:#{pass} - SUCCESS".green.bold
         else
-          puts "#{host}:#{user}:#{pass} - FAILED".red.bold
+          puts "[-]#{host}:#{user}:#{pass} - FAILED".red.bold
         end
       end
     end
