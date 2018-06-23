@@ -1,6 +1,5 @@
 #!/usr/bin/env ruby
 #Terminator is an RDP attack tool which wraps Impackets rdp_check.
-#It supports both password and hash passing for auth
 
 require 'trollop'
 require 'colorize'
