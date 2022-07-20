@@ -100,9 +100,10 @@ def run_command
       tty_command(command, 10)
       if @out =~ /Access Granted/
         puts "ACCESS GRANTED: #{host}:#{creds[0]}:#{creds[1]} ".green.bold
+      elsif @err
+        puts "Error: #{host}:#{creds[0]}:#{creds[1]}\n#{@err}".red.bold
       else
         puts "NOPE #{host}:#{creds[0]}:#{creds[1]}".red.bold
-        puts @err
       end
     end
   end
