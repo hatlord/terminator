@@ -1,25 +1,29 @@
-#!/usr/bin/python
-# Copyright (c) 2003-2016 CORE Security Technologies
+#!/usr/bin/env python
+# Impacket - Collection of Python classes for working with network protocols.
 #
-# This software is provided under under a slightly modified version
+# SECUREAUTH LABS. Copyright (C) 2021 SecureAuth Corporation. All rights reserved.
+#
+# This software is provided under a slightly modified version
 # of the Apache Software License. See the accompanying LICENSE file
 # for more information.
+#
+# Description:
+#   [MS-RDPBCGR] and [MS-CREDSSP] partial implementation
+#   just to reach CredSSP auth. This example test whether
+#   an account is valid on the target host.
 #
 # Author:
 #  Alberto Solino (@agsolino)
 #
-# Description: [MS-RDPBCGR] and [MS-CREDSSP] partial implementation 
-#              just to reach CredSSP auth. This example test whether
-#              an account is valid on the target host.
-#
 # ToDo:
-#    [x] Manage to grab the server's SSL key so we can finalize the whole
+#   [x] Manage to grab the server's SSL key so we can finalize the whole
 #        authentication process (check [MS-CSSP] section 3.1.5)
 #
 
 from struct import pack, unpack
 
 from impacket.examples import logger
+from impacket.examples.utils import parse_target
 from impacket.structure import Structure
 from impacket.spnego import GSSAPI, ASN1_SEQUENCE, ASN1_OCTET_STRING, asn1decode, asn1encode
 
@@ -184,7 +188,7 @@ class TSRequest(GSSAPI):
        decode_data = decode_data[1:]
        next_bytes, total_bytes = asn1decode(decode_data)                
        # The INTEGER tag must be here
-       if unpack('B',next_bytes[0])[0] != 0x02:
+       if unpack('B',next_bytes[0:1])[0] != 0x02:
            raise Exception('INTEGER tag not found %r' % next_byte)
        next_byte, _ = asn1decode(next_bytes[1:])
        self['Version'] = unpack('B',next_byte)[0]
@@ -240,21 +244,21 @@ class TSRequest(GSSAPI):
 
    def getData(self):
      # Do we have pubKeyAuth?
-     if self.fields.has_key('pubKeyAuth'):
+     if 'pubKeyAuth' in self.fields:
          pubKeyAuth = pack('B',0xa3)
          pubKeyAuth += asn1encode(pack('B', ASN1_OCTET_STRING) +
                        asn1encode(self['pubKeyAuth']))
      else:
-         pubKeyAuth = ''
+         pubKeyAuth = b''
 
-     if self.fields.has_key('authInfo'):
+     if 'authInfo' in self.fields:
          authInfo = pack('B',0xa2)
          authInfo+= asn1encode(pack('B', ASN1_OCTET_STRING) +
                        asn1encode(self['authInfo']))
      else: 
-         authInfo = ''
+         authInfo = b''
 
-     if self.fields.has_key('NegoData'):
+     if 'NegoData' in self.fields:
          negoData = pack('B',0xa1) 
          negoData += asn1encode(pack('B', ASN1_SEQUENCE) +
                     asn1encode(pack('B', ASN1_SEQUENCE) + 
@@ -262,7 +266,7 @@ class TSRequest(GSSAPI):
                     asn1encode(pack('B', ASN1_OCTET_STRING) + 
                     asn1encode(self['NegoData'])))))
      else:
-         negoData = ''
+         negoData = b''
      ans = pack('B', ASN1_SEQUENCE)
      ans += asn1encode(pack('B',0xa0) + 
             asn1encode(pack('B',0x02) + asn1encode(pack('B',0x02))) +
@@ -277,10 +281,9 @@ if __name__ == '__main__':
     import sys
     import logging
     from binascii import a2b_hex
-    from Crypto.Cipher import ARC4
+    from Cryptodome.Cipher import ARC4
     from impacket import ntlm, version
     try:
-        import OpenSSL
         from OpenSSL import SSL, crypto
     except:
         logging.critical("pyOpenSSL is not installed, can't continue")
@@ -374,13 +377,13 @@ if __name__ == '__main__':
        rdp_neg = RDP_NEG_REQ()
        rdp_neg['Type'] = TYPE_RDP_NEG_REQ
        rdp_neg['requestedProtocols'] = PROTOCOL_HYBRID | PROTOCOL_SSL
-       tpdu['VariablePart'] = str(rdp_neg)
+       tpdu['VariablePart'] = rdp_neg.getData()
        tpdu['Code'] = TDPU_CONNECTION_REQUEST
-       tpkt['TPDU'] = str(tpdu)
+       tpkt['TPDU'] = tpdu.getData()
    
        s = socket.socket()
        s.connect((host,3389))
-       s.sendall(str(tpkt))
+       s.sendall(tpkt.getData())
        pkt = s.recv(8192)
        tpkt.fromString(pkt)
        tpdu.fromString(tpkt['TPDU'])
@@ -406,8 +409,11 @@ if __name__ == '__main__':
        # a self-signed X.509 certificate.
 
        # Switching to TLS now
-       ctx = SSL.Context(SSL.TLSv1_METHOD)
-       ctx.set_cipher_list('RC4')
+       ctx = SSL.Context(SSL.TLS_METHOD)
+       ctx.set_cipher_list('ALL:@SECLEVEL=0'.encode('utf-8'))
+       SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION = 0x00040000
+       ctx.set_options(SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION)
+       ctx.set_options(SSL.OP_DONT_INSERT_EMPTY_FRAGMENTS)
        tls = SSL.Connection(ctx,s)
        tls.set_connect_state()
        tls.do_handshake()
@@ -437,13 +443,12 @@ if __name__ == '__main__':
        auth = ntlm.getNTLMSSPType1('','',True, use_ntlmv2 = True)
 
        ts_request = TSRequest()
-       ts_request['NegoData'] = str(auth)
+       ts_request['NegoData'] = auth.getData()
 
        tls.send(ts_request.getData())
        buff = tls.recv(4096)
        ts_request.fromString(buff)
 
-   
        # 3. The client encrypts the public key it received from the server (contained 
        # in the X.509 certificate) in the TLS handshake from step 1, by using the 
        # confidentiality support of SPNEGO. The public key that is encrypted is the 
@@ -464,16 +469,14 @@ if __name__ == '__main__':
        # Get server public key
        server_cert =  tls.get_peer_certificate()
        pkey = server_cert.get_pubkey()
-       dump = crypto.dump_privatekey(crypto.FILETYPE_ASN1, pkey)
-
-       # Fix up due to PyOpenSSL lack for exporting public keys
-       dump = dump[7:]
-       dump = '\x30'+ asn1encode(dump)
+       dump = crypto.dump_publickey(crypto.FILETYPE_ASN1, pkey)
+       # Parsing the key from ASN1 encoded
+       dump = dump[24:]
 
        cipher = SPNEGOCipher(type3['flags'], exportedSessionKey)
        signature, cripted_key = cipher.encrypt(dump)
-       ts_request['NegoData'] = str(type3)
-       ts_request['pubKeyAuth'] = str(signature) + cripted_key
+       ts_request['NegoData'] = type3.getData()
+       ts_request['pubKeyAuth'] = signature.getData() + cripted_key
 
        try:
            # Sending the Type 3 NTLM blob
@@ -485,7 +488,7 @@ if __name__ == '__main__':
            # anything. So, I'm sending garbage so the server returns an error. 
            # Luckily, it's a different error so we can determine whether or not auth worked ;)
            buff = tls.recv(1024)
-       except Exception, err:
+       except Exception as err:
            if str(err).find("denied") > 0:
                logging.error("Access Denied")
            else:
@@ -536,14 +539,14 @@ if __name__ == '__main__':
 
        signature, cripted_creds = cipher.encrypt(tsc.getData())
        ts_request = TSRequest()
-       ts_request['authInfo'] = str(signature) + cripted_creds
+       ts_request['authInfo'] = signature.getData() + cripted_creds
        tls.send(ts_request.getData())
        tls.close()
        logging.info("Access Granted")
 
     # Init the example's logger theme
     logger.init()
-    print version.BANNER
+    print(version.BANNER)
 
     parser = argparse.ArgumentParser(add_help = True, description = "Test whether an account is valid on the target "
                                                                     "host using the RDP protocol.")
@@ -559,13 +562,7 @@ if __name__ == '__main__':
  
     options = parser.parse_args()
 
-    import re
-    domain, username, password, address = re.compile('(?:(?:([^/@:]*)/)?([^@:]*)(?::([^@]*))?@)?(.*)').match(options.target).groups('')
-
-    #In case the password contains '@'
-    if '@' in address:
-        password = password + '@' + address.rpartition('@')[0]
-        address = address.rpartition('@')[2]
+    domain, username, password, address = parse_target(options.target)
 
     if domain is None:
         domain = ''

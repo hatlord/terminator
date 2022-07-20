@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 #Terminator is an RDP attack tool which wraps Impackets rdp_check.
 #HASHES:
-require 'trollop'
+require 'optimist'
 require 'colorize'
 require 'logger'
 require 'tty-command'
@@ -10,7 +10,7 @@ require 'tty-command'
 @rdp_check  = "#{@tooldir}/rdp_check.py"
 
 def arguments
-  @opts = Trollop::options do
+  @opts = Optimist::options do
     version "terminator 0.1".light_blue
     banner <<-EOS
     RDP Password Attacker
@@ -102,6 +102,7 @@ def run_command
         puts "ACCESS GRANTED: #{host}:#{creds[0]}:#{creds[1]} ".green.bold
       else
         puts "NOPE #{host}:#{creds[0]}:#{creds[1]}".red.bold
+        puts @err
       end
     end
   end
