@@ -7,7 +7,7 @@ require 'logger'
 require 'tty-command'
 
 @tooldir    = File.expand_path(File.dirname(__FILE__))
-@rdp_check  = "#{@tooldir}/rdp_check.py"
+@rdp_check  = "python3 #{@tooldir}/rdp_check.py"
 
 def arguments
   @opts = Optimist::options do
@@ -102,6 +102,7 @@ def run_command
         puts "ACCESS GRANTED: #{host}:#{creds[0]}:#{creds[1]} ".green.bold
       elsif @err
         puts "Error: #{host}:#{creds[0]}:#{creds[1]}\n#{@err}".red.bold
+        puts @out
       else
         puts "NOPE #{host}:#{creds[0]}:#{creds[1]}".red.bold
       end
